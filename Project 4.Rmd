@@ -1,0 +1,383 @@
+---
+title: 'Project 4: Clean Energy and Electric Vehicles'
+author: "Berge Sievers"
+date: "2025-10-28"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+## OVERVIEW
+
+## Introduction to the chosen sub-question
+
+The research question for this report was to determine the question that Electric vehicles reduce direct emissions, but does the electricity used to charge them actually come from
+clean sources? Therefore, one of the sub-questions would be to determine how the share of renewable energy has changed from 2021 to 2023. the other question would be to determine the proportion of electricty used in each state comes from clean sources between 2021 and 2023. the other sub-question would be to determine whethe the states with a higher share of renewable electricity are also the ones with more EV registrations in 2023.Finally the other sub-question would be to identify how much renewable electricity is available oer registered EV in each state.
+
+
+## Data and Methods
+The following datasets were used to carry out the needed analysis;
+
+      1. renew_use_2021.csv, 
+      2. renew_use_2022.csv, 
+      3. renew_use_2023.csv	2021–2023	
+      4. total_energy_use_2021.csv, 
+      5. total_energy_use_2022.csv, 
+      6. total_energy_use_2023.csv	
+      7. ev-registrationsby_state_2023.csv
+
+
+## Data Cleaning and Preparation 
+
+
+```{r}
+library(tidyverse) 
+library(janitor) 
+library(sf) 
+library(viridis)
+library(readxl)
+data_path <- "C:/Users/ThinkPad/Desktop/Project 4/"
+
+# Load and clean renewable and total energy data
+renew21 <- read_csv(paste0(data_path, "renew-use-2021.csv")) %>% clean_names() %>% mutate(year = 2021)
+renew22 <- read_csv(paste0(data_path, "renew-use-2022.csv")) %>% clean_names() %>% mutate(year = 2022)
+renew23 <- read_csv(paste0(data_path, "renew-use-2023.csv")) %>% clean_names() %>% mutate(year = 2023)
+
+total21 <- read_csv(paste0(data_path, "total-use-2021.csv")) %>% clean_names() %>% mutate(year = 2021)
+total22 <- read_csv(paste0(data_path, "total-use-2022.csv")) %>% clean_names() %>% mutate(year = 2022)
+total23 <- read_csv(paste0(data_path, "total-use-2023.csv")) %>% clean_names() %>% mutate(year = 2023)
+ev_file <- "C:/Users/ThinkPad/Desktop/Project 4/ev-registrations-by-state-2023.csv"
+ev23 <- read_csv(ev_file) %>%
+  clean_names() 
+ev23 <- ev23 %>%
+  mutate(state = str_to_title(state))
+head(ev23)
+# average price from 2021 to 2023
+price_file <- "C:/Users/ThinkPad/Desktop/Project 4/av-energy-price-2021-2023.xlsx"
+av_price <- read_excel(price_file) %>%
+  clean_names() 
+av_price <- av_price %>%
+  mutate(state = str_to_title(state))
+head(av_price)
+# we create an average price for the three years as;
+av_price <- av_price %>%
+  mutate(
+    avg_price = rowMeans(select(., av_price_2021, av_price_2022, av_price_2023), na.rm = TRUE)
+  ) %>%
+  select(state, avg_price)
+head(av_price)
+
+## cleaning
+ev23 <- ev23 %>%
+  mutate(
+    count_e_vs = str_replace_all(count_e_vs, "[^0-9]", ""), 
+    count_e_vs = as.numeric(count_e_vs)                       
+  )
+head(ev23)
+
+## cleaning renewable energy data
+
+
+```
+
+```{r}
+## The corrected data 
+Project4 <- read_csv("C:/Users/ThinkPad/Desktop/Project 4/Project4.csv")%>%
+  clean_names()
+glimpse(Project4)
+```
+
+
+## Basic Descriptive Summaries for continuous Variables
+
+```{r}
+summary(select(Project4,renewable_use_2021, renewable_use_2022,renewable_use_2023,total_renewable_energy_2021,total_renewables_energy_2022, total_renewable_energy_2023, av_price_2021,av_price_2022,av_price_2023, e_vs))
+
+```
+
+
+## Part 3: Joining / Pivoting Datasets for Analysis
+
+
+```{r}
+project_long <- Project4 %>%
+  pivot_longer(
+    cols = matches("renewable_use_|total_.*_202\\d|av_price_"),
+    names_to = c(".value", "year"),
+    names_pattern = "(.*)_(202\\d)"
+  )
+## This code cleans and converts variables 
+project_long <- project_long %>%
+  mutate(
+    year = as.integer(year),
+    renewable_use = as.numeric(str_replace_all(renewable_use, "[^0-9\\.]", "")),
+    total_renewable_energy = as.numeric(str_replace_all(total_renewable_energy, "[^0-9\\.]", "")),
+    av_price = as.numeric(str_replace_all(av_price, "[$]", "")),
+    e_vs = as.numeric(e_vs)  # EV column
+  ) %>%
+  select(state_symbol, state, year, renewable_use, total_renewable_energy, av_price, e_vs)
+## Thi code creats the required variables for analysis
+project_long <- project_long %>%
+  mutate(
+    pct_renewable = (renewable_use / total_renewable_energy) * 100,
+    ev_per_total_energy = e_vs / total_renewable_energy
+  )
+head(project_long)
+library(kableExtra)
+summary_table <- project_long %>%
+  group_by(year) %>%
+  summarise(
+    Mean_Renewable_Use = round(mean(renewable_use, na.rm = TRUE), 2),
+    SD_Renewable_Use = round(sd(renewable_use, na.rm = TRUE), 2),
+    Mean_Total_Renewable_Energy = round(mean(total_renewable_energy, na.rm = TRUE), 2),
+    Mean_Pct_Renewable = round(mean(pct_renewable, na.rm = TRUE), 2),
+    Mean_EV_Ratio = round(mean(ev_per_total_energy, na.rm = TRUE), 4),
+    Mean_Price = round(mean(av_price, na.rm = TRUE), 2),
+    States_Observed = n()
+  )
+
+kable(summary_table, caption = "Summary Statistics of Energy and EV Indicators by Year")
+
+```
+
+
+## Part 4: Mapping and Dashboard Visualization
+
+```{r}
+library(leaflet)
+library(tigris)
+# To create maps, we will need to download US shapefiles as shown;
+states_sf <- tigris::states(cb = TRUE) %>% 
+  st_as_sf() %>%
+  filter(!STUSPS %in% c("AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA",
+    "KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ",
+    "NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT",
+    "VA","WA","WV","WI","WY","DC"))
+project_long <- project_long %>%
+  filter(year %in% c(2021, 2022, 2023))
+
+```
+## Merging data
+
+```{r}
+# This code merges geometry with renewable per EV for 2023
+energy_2023 <- project_long %>%
+  filter(year == 2023) %>%
+  mutate(state_name = str_to_title(state))
+
+# This code will help in merging the desired states by state name
+states_merged <- states_sf %>%
+  left_join(energy_2023, by = c("NAME" = "state_name"))
+
+```
+
+## STATIC MAP
+
+```{r}
+## This code creates a map using ggplot
+library(tigris)
+library(sf)
+
+# Download state boundaries (50 states + DC)
+states_sf <- states(cb = TRUE)  
+states_sf <- states_sf[!states_sf$NAME %in% c("Puerto Rico", "Guam", 
+                                               "American Samoa", 
+                                               "Commonwealth of the Northern Mariana Islands", 
+                                               "United States Virgin Islands"), ]
+states_merged <- left_join(states_sf, project_long, by = c("NAME" = "state"))
+energy_2023 <- project_long %>%
+  filter(year == 2023)
+states_merged <- left_join(states_sf, energy_2023, by = c("NAME" = "state"))
+ggplot(states_merged) +
+  geom_sf(aes(fill = pct_renewable), color = "white") +
+  scale_fill_viridis_c(option = "plasma", na.value = "grey90") +
+  labs(
+    title = "Percentage of Renewable Energy by State (2023)",
+    fill = "% Renewable",
+    caption = "Data source: U.S. State Renewable Energy Dataset created by Sievers"
+  ) +
+  theme_minimal()
+
+
+```
+
+## Using Leaflet to create an Interactive Map
+
+
+```{r}
+# Filter for 2023
+energy_2023 <- project_long %>%
+  filter(year == 2023) %>%
+  mutate(
+    EVs = as.numeric(e_vs),
+    total_renewable_2023 = as.numeric(total_renewable_energy),
+    renewable_per_ev = total_renewable_2023 / EVs
+  )
+summary(energy_2023$renewable_per_ev)
+states_sf <- states(cb = TRUE) %>% filter(!STUSPS %in% c("GU","AS","PR","VI","MP"))
+
+states_merged <- states_sf %>%
+  left_join(energy_2023, by = c("NAME" = "state"))
+
+
+## This code uses Leaflet package to create an interactive plot
+pal <- colorNumeric("YlGnBu", domain = states_merged$pct_renewable)
+leaflet(states_merged) %>%
+  addProviderTiles("CartoDB.Positron") %>%
+  addPolygons(
+    fillColor = ~pal(pct_renewable),
+    weight = 1,
+    opacity = 1,
+    color = "white",
+    dashArray = "3",
+    fillOpacity = 0.8,
+    label = ~paste0(NAME, ": ", round(pct_renewable, 1), "% Renewable"),
+    highlight = highlightOptions(
+      weight = 2,
+      color = "#666",
+      fillOpacity = 0.9,
+      bringToFront = TRUE
+    )
+  ) %>%
+  addLegend(
+    pal = pal,
+    values = ~pct_renewable,
+    opacity = 0.7,
+    title = "Percent Renewable",
+    position = "bottomright"
+  )
+
+```
+
+
+## Trends Using gigamate
+
+```{r}
+library(gganimate)
+
+```
+
+## Interactive map showing renewable energy available per registered EV for each state
+
+
+To answer the sub-question that aims to determine how much renewable energy is available per regiistered EV, we will proceed as follows;
+
+
+```{r}
+# first, we filter data to only have 2023 because EV data did not have 2021 and 2022 data.
+states_sf <- tigris::states(cb = TRUE) %>%
+  st_as_sf() %>%
+  filter(!STUSPS %in% c("GU", "AS", "PR", "VI", "MP"))
+states_merged <- states_sf %>%
+  left_join(energy_2023, by = c("NAME" = "state"))
+energy_2023 <- project_long %>% 
+  filter(year == 2023) %>%
+  mutate(
+    state_name = str_to_title(state),
+    renewable_per_ev = total_renewable_energy / e_vs  
+  )
+
+# This code merges with states Shapefiles
+states_merged <- states_sf %>%
+  left_join(energy_2023, by = c("NAME" = "state_name"))
+# This code creates a color pallette
+pal_ev <- colorNumeric(
+  palette = "YlOrRd",
+  domain = states_merged$renewable_per_ev,
+  na.color = "grey90"
+)
+
+```
+```{r}
+leaflet(states_merged) %>%
+  addProviderTiles("CartoDB.Positron") %>%
+  addPolygons(
+    fillColor = ~pal_ev(renewable_per_ev),
+    weight = 1,
+    opacity = 1,
+    color = "white",
+    dashArray = "3",
+    fillOpacity = 0.8,
+    label = ~paste0(NAME, ": ", round(renewable_per_ev, 1), " units per EV"),
+    highlight = highlightOptions(
+      weight = 2,
+      color = "#666",
+      fillOpacity = 0.9,
+      bringToFront = TRUE
+    )
+  ) %>%
+  addLegend(
+    pal = pal_ev,
+    values = ~renewable_per_ev,
+    opacity = 0.7,
+    title = "Renewable Energy per EV",
+    position = "bottomright"
+  )
+
+```
+
+# Time-based map showing the percentage of renewable energy per state from 2021–2023
+
+```{r}
+project_long <- Project4 %>%
+  pivot_longer(
+    cols = c(renewable_use_2021:renewable_use_2023,
+             total_renewable_energy_2021:total_renewable_energy_2023,
+             av_price_2021:av_price_2023),
+    names_to = c(".value", "year"),
+    names_pattern = "(.*)_(\\d+)"
+  ) %>%
+  mutate(
+    year = as.numeric(year),
+    e_vs = as.numeric(e_vs),  # ensure EVs are numeric
+    pct_renewable = (renewable_use / total_renewable_energy) * 100,
+    ev_per_total_energy = total_renewable_energy / e_vs
+  )
+## LOAD SHAPEFILES AND INCLUDE ALL 50 STATES
+states_sf <- tigris::states(cb = TRUE) %>%
+  st_as_sf() %>%
+  filter(STUSPS %in% c(
+    "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA",
+    "KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ",
+    "NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT",
+    "VA","WA","WV","WI","WY","DC"
+  ))
+
+```
+
+# Merging the data with the required geometry
+
+# Create an animated map
+
+```{r}
+ggplot(states_merged) +
+  geom_sf(aes(fill = total_renewable_energy)) +
+  scale_fill_viridis_c(option = "plasma", na.value = "grey90") +
+  facet_wrap(~year) +  # one map per year
+  labs(
+    title = "Total Renewable Energy by State (2021–2023)",
+    fill = "Renewable Energy",
+    caption = "Data source: Project 4"
+  ) +
+  theme_minimal()
+```
+
+## Analysis: Interpreting the findings
+
+To start with, the maps showed variations in renewable energy across different states. States like Wyoming, Massachusetts among others had high renewable energies compared to states like Arkansas, Nevada, New Mexico and even California. Consequently, there is a gradual growth in renewable energy indicating efforts to expand the capacity of Clean energy.
+
+Additionally, the results indicates that North eastern states have higher total renewable energy compared to other states. 
+
+These results implies that EVs are more environmentally beneficial in states with higher renewable energy shares and therefore, charging in states with low renewable energy may largely rely on fossil fuels.
+
+
+
+## R Markdown
+
+
